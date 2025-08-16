@@ -1,0 +1,1 @@
+python -m experiments.run_experiments --data_dir ./data --seq_len 60 --pred_len 10
