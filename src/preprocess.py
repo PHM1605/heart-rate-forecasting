@@ -26,5 +26,12 @@ def find_pairs(data_dir: Path):
 
 def build_session_dataframe(hr_path, xe_path, activity, user):
   hr = parse_hr_csv(hr_path)
-  # xe = parse_xethru_csv(xe_path)
-  print(hr)
+  xe = parse_xethru_csv(xe_path)
+  # round datetime to the nearest second
+  hr['timestamp'] = pd.to_datetime(hr['timestamp']).dt.floor('s')
+  xe['timestamp'] = pd.to_datetime(xe['timestamp']).dt.floor('s')
+  df = pd.merge(hr, xe, on='timestamp', how='inner')
+  df['activity'] = activity 
+  df['user'] = user 
+  df = df.sort_values('timestamp').dropna().reset_index(drop=True)
+  return df 

@@ -2,6 +2,7 @@ import csv, re
 from datetime import timedelta 
 from pathlib import Path 
 import pandas as pd 
+from io import StringIO
 
 def parse_hr_csv(path:Path):
   rows = []
@@ -58,5 +59,34 @@ def parse_hr_csv(path:Path):
   df = df.drop_duplicates(subset="timestamp").sort_values("timestamp")
   return df 
 
+# group(1): yyyy-mm-dd HH:MM:SS.<fraction-seconds>
+TS_REGEX = re.compile(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+)')
+# Parse files like user1_rest_xethru.csv to ['timestamp', 'xe0', 'xe1',...]
 def parse_xethru_csv(path:Path):
   clean_lines = []
+  with open(path, 'r') as f:
+    for line in f:
+      line = line.strip()
+      if not line: continue 
+      m = TS_REGEX.match(line)
+      if not m: continue 
+      ts = m.group(1)
+      rest = line[len(ts):]
+      if rest[0] in ['-', '+'] or rest[0].isdigit():
+        clean_lines.append(f"{ts},{rest}")
+      else:
+        continue 
+
+  # convert ["x,x,x", "y,y,y", ...] => "x,x,x\ny,y,y\n" => make it to a file for pd.read_csv()
+  buf = StringIO('\n'.join(clean_lines))
+  df = pd.read_csv(buf, header=None)
+  df.rename(columns={0:'timestamp'}, inplace=True) # new df: 1st-col=timestamp, 2nd-col=1, 3rd=2, ...
+  df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+  df = df.dropna(subset=["timestamp"]).set_index("timestamp").sort_index()
+  df = df.resample('1s').mean().reset_index() # make one row = one second gap
+  # rename column '1'=>'xe0', '2'=>'xe1',...
+  for j in range(1, df.shape[1]):
+    df.rename(columns={j: f'xe{j-1}'}, inplace=True)
+
+  return df 
+
