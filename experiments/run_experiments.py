@@ -2,11 +2,12 @@ import argparse
 import torch 
 import numpy as np 
 import pandas as pd
+from collections import defaultdict 
 from pathlib import Path 
 from src import preprocess, utils 
 from src.dataset import WindowDataset
 from src.models import LSTMForecaster, MLP
-from src.train import run_epoch 
+from src.train import run_epoch, metrics_dict
 from torch.utils.data import DataLoader
 
 def make_loaders(train_frames, val_frames, test_frames, input_cols, target_col,
@@ -105,5 +106,62 @@ def main():
       tr_loss, _, _ = run_epoch(model, loaders['train'], device, optimizer=opt)
       val_loss, _, _ = run_epoch(model, loaders['val'], device, optimizer=None)
       print(f"[{name}] epoch {epoch:02d} train MSE={tr_loss:.4f} val MSE={val_loss:.4f}")
+      if val_loss < best_val - 1e-6:
+        best_val = val_loss 
+        best_state = {k:v.cpu().clone() for k,v in model.state_dict().items()}
+        bad = 0 
+      else:
+        bad += 1 
+        if bad >= patience:
+          break
+    
+    if best_state is not None:
+      model.load_state_dict(best_state)
+    # test 
+    _, y_test, yhat_test = run_epoch(model, loaders['test'], device, optimizer=None)
+    md = metrics_dict(y_test, yhat_test)
+    md.update(model=name, split='test_overall')
+    results.append(md)
+
+    # per-activity 
+    per_activity = defaultdict(lambda: {'y': [], 'yhat': []})
+    test_ds = loaders['test'].dataset 
+    model.eval()
+    with torch.no_grad():
+      for (frame_id, start) in test_ds.samples:
+        frame = test_ds.frames[frame_id]
+        activity = frame["activity"].iloc[0]
+        x = frame.iloc[start:start+test_ds.seq_len][test_ds.input_cols]
+        y = frame.iloc[start+test_ds.seq_len : start+test_ds.seq_len+test_ds.pred_len][test_ds.target_col]
+        x = (x - test_ds.mean) / test_ds.std 
+        # [batch, time, dim]
+        x = torch.tensor(x.values, dtype=torch.float32, device=device).unsqueeze(0)
+        yhat = model(x).squeeze(0).cpu().numpy()
+        per_activity[activity]['y'].append(y.values)
+        per_activity[activity]['yhat'].append(yhat)
+    
+    # d: {'y': [[], [],...], 'yhat': [[], [], [], ..]}
+    for activity, d in per_activity.items():
+      y = np.stack(d['y'], axis=0)
+      yhat = np.stack(d['yhat'], axis=0)
+      md = metrics_dict(y, yhat)
+      md.update(model=name, split=f"test_{activity}")
+      results.append(md)
+    
+    # Save one example plot
+    if not best_plot_saved and len(test_frames) > 0:
+      frame = test_frames[0]
+      plot_path = Path(out_dir) / "example_test_segment.png"
+      utils.save_example_plot(frame, input_cols, norm, model, args.seq_len, args.pred_len, plot_path)
+      best_plot_saved = True 
+  
+  # save result 
+  res_df = pd.DataFrame(results)
+  res_path = Path(out_dir) / "results_summary.csv"
+  res_df.to_csv(res_path, index=False)
+  print(f"\nSaved metrics table -> {res_path}")
+  if best_plot_saved:
+    print(f"Saved example plot -> {Path(out_dir) / 'example_test_segment.png'}")
+
 if __name__ == "__main__":
   main()

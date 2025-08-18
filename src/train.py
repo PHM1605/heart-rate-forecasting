@@ -2,6 +2,18 @@ import numpy as np
 import torch 
 from torch import nn 
 
+def metrics_dict(y_true, y_pred):
+  eps = 1e-8 
+  mae = np.mean(np.abs(y_true - y_pred))
+  rmse = np.sqrt(np.mean((y_true-y_pred)**2))
+  mask = np.abs(y_true) > 1e-6 # to avoid divided by zero
+  mape = np.mean( abs((y_true[mask]-y_pred[mask]) / (y_true[mask]+eps)) )*100.0 if mask.any() else np.nan
+  # R^2
+  ss_res = np.sum((y_true-y_pred)**2)
+  ss_tot = np.sum((y_true - np.mean(y_true))**2) + eps 
+  r2 = 1.0 - ss_res/ss_tot 
+  return dict(MAE=mae, RMSE=rmse, MAPE=mape, R2=r2)
+  
 def run_epoch(model, loader, device, optimizer=None):
   # train=> optimizer has a value
   is_train = optimizer is not None
