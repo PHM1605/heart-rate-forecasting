@@ -17,6 +17,7 @@ def metrics_dict(y_true, y_pred):
 def run_epoch(model, loader, device, optimizer=None):
   # train=> optimizer has a value
   is_train = optimizer is not None
+  is_seq2seq = hasattr(model, "encoder") and hasattr(model, "decoder")
   model.train(is_train)
   # list of losses of each batch
   losses, y_all, yhat_all = [], [], [] 
@@ -27,7 +28,10 @@ def run_epoch(model, loader, device, optimizer=None):
     y = y.to(device)
     if is_train:
       optimizer.zero_grad()
-    yhat = model(x)
+    if is_train and is_seq2seq:
+      yhat = model(x, y_future=y)
+    else:
+      yhat = model(x)
     loss = crit(yhat, y)
     if is_train:
       loss.backward() 

@@ -6,7 +6,7 @@ from collections import defaultdict
 from pathlib import Path 
 from src import preprocess, utils 
 from src.dataset import WindowDataset
-from src.models import LSTMForecaster, MLP
+from src.models import LSTMForecaster, MLP, TransformerForecaster, TCN, Seq2SeqLSTM
 from src.train import run_epoch, metrics_dict
 from torch.utils.data import DataLoader
 
@@ -88,8 +88,11 @@ def main():
   device = torch.device(args.device)
   feat_dim = len(input_cols)
   models = {
-    'mlp': MLP(seq_len=args.seq_len, feat_dim=feat_dim, pred_len=args.pred_len, hidden=256, dropout=0.1),
-    'lstm': LSTMForecaster(feat_dim=feat_dim, pred_len=args.pred_len, hidden=128, layers=2, dropout=0.1)
+    # 'mlp': MLP(seq_len=args.seq_len, feat_dim=feat_dim, pred_len=args.pred_len, hidden=256, dropout=0.1),
+    # 'lstm': LSTMForecaster(feat_dim=feat_dim, pred_len=args.pred_len, hidden=128, layers=2, dropout=0.1),
+    # 'tcn': TCN(feat_dim=feat_dim, pred_len=args.pred_len, channels=(64,64,64), k=3, dropout=0.1),
+    # 'transformer': TransformerForecaster(feat_dim, args.pred_len, d_model=128, nhead=4, num_layers=3, dim_ff=256, dropout=0.1),
+    "seq2seq_lstm": Seq2SeqLSTM(feat_dim=feat_dim, pred_len=args.pred_len, hidden=128, layers=2, dropout=0.1, teacher_forcing_ratio=0.5)
   }
 
   results = []
