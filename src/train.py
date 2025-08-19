@@ -1,6 +1,7 @@
 import numpy as np 
 import torch 
 from torch import nn 
+from src.quantiles import PinballLoss
 
 def metrics_dict(y_true, y_pred):
   eps = 1e-8 
@@ -20,27 +21,36 @@ def run_epoch(model, loader, device, optimizer=None):
   is_seq2seq = hasattr(model, "encoder") and hasattr(model, "decoder")
   model.train(is_train)
   # list of losses of each batch
-  losses, y_all, yhat_all = [], [], [] 
+  losses, y_all, yhat50_all = [], [], [] 
 
-  crit = nn.MSELoss() 
-  for x, y in loader:
-    x = x.to(device)
-    y = y.to(device)
-    if is_train:
-      optimizer.zero_grad()
-    if is_train and is_seq2seq:
-      yhat = model(x, y_future=y)
-    else:
-      yhat = model(x)
-    loss = crit(yhat, y)
-    if is_train:
-      loss.backward() 
-      nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-      optimizer.step() 
-    losses.append(loss.item())
-    y_all.append(y.detach().cpu().numpy())
-    yhat_all.append(yhat.detach().cpu().numpy())
+  qloss = PinballLoss()
+  with torch.set_grad_enabled(is_train):
+    print("DEVICE IS ", device)
+    for x, y in loader:
+      x = x.to(device)
+      y = y.to(device)
+      if is_train and is_seq2seq:
+        yhat_3q = model(x, y_future=y) # (batch,pred_len,3) with teacher forcing
+      else:
+        yhat_3q = model(x) # (batch,pred_len,3)
+      loss = qloss(yhat_3q, y)
+
+      if is_train:
+        optimizer.zero_grad()
+        loss.backward() 
+        nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimizer.step() 
+      losses.append(loss.item())
+      # for eval metrics: using p50 as point forecast
+      if not is_train:
+        y_all.append(y.detach().cpu().numpy())
+        yhat50_all.append(median_channel(yhat_3q).detach().cpu().numpy())
+
   # ONE very long time series of ALL samples 
-  y_all = np.concatenate(y_all, axis=0) if y_all else np.zeros((0,1))
-  yhat_all = np.concatenate(yhat_all, axis=0) if yhat_all else np.zeros((0,1))
-  return float(np.mean(losses)) if losses else float('nan'), y_all, yhat_all 
+  avg_loss = float(np.mean(losses)) if losses else float('nan')
+  if training:
+    return avg_loss, None, None 
+  else:
+    y_all = np.concatenate(y_all, axis=0) if y_all else None
+    yhat50_all = np.concatenate(yhat50_all, axis=0) if yhat50_all else None
+  return avg_loss, y_all, yhat50_all 

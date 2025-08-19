@@ -20,17 +20,21 @@ class PositionalEncoding(nn.Module):
     return x + self.pe[:,:L,:]
 
 class TransformerForecaster(nn.Module):
-  def __init__(self, feat_dim, pred_len, d_model=128, nhead=4, num_layers=3, dim_ff=256, dropout=0.1):
+  def __init__(self, feat_dim, pred_len, d_model=128, nhead=4, num_layers=3, dim_ff=256, dropout=0.1, n_quantiles=3):
     super().__init__()
+    self.pred_len = pred_len 
+    self.nq = n_quantiles
     self.in_proj = nn.Linear(feat_dim, d_model)
     self.pos = PositionalEncoding(d_model)
     enc_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=dim_ff, dropout=dropout, batch_first=True)
     self.encoder = nn.TransformerEncoder(enc_layer, num_layers=num_layers)
-    self.head = nn.Linear(d_model, pred_len)
+    self.head = nn.Linear(d_model, pred_len*n_quantiles)
 
   def forward(self, x):
     # x: [batch,time,feat_dim]
     z = self.in_proj(x) # z: [batch,time,d_model]
     z = self.pos(z) # z: [batch,time,d_model]
     z = self.encoder(z) # z: [batch, time, d_model]
-    return self.head(z[:,-1,:]) # [batch, d_model] => [batch, pred_len]
+    out = self.head(z[:,-1,:]) # [batch, d_model] => [batch, pred_len*n_quantiles]
+    batch = out.shape[0]
+    return out.view(batch, self.pred_len, self.nq)

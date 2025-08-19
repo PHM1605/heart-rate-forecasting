@@ -92,7 +92,7 @@ def main():
     # 'lstm': LSTMForecaster(feat_dim=feat_dim, pred_len=args.pred_len, hidden=128, layers=2, dropout=0.1),
     # 'tcn': TCN(feat_dim=feat_dim, pred_len=args.pred_len, channels=(64,64,64), k=3, dropout=0.1),
     # 'transformer': TransformerForecaster(feat_dim, args.pred_len, d_model=128, nhead=4, num_layers=3, dim_ff=256, dropout=0.1),
-    "seq2seq_lstm": Seq2SeqLSTM(feat_dim=feat_dim, pred_len=args.pred_len, hidden=128, layers=2, dropout=0.1, teacher_forcing_ratio=0.5)
+    "seq2seq_lstm": Seq2SeqLSTM(feat_dim=feat_dim, pred_len=args.pred_len, hidden=128, layers=2, teacher_forcing_ratio=0.5)
   }
 
   results = []
@@ -121,8 +121,8 @@ def main():
     if best_state is not None:
       model.load_state_dict(best_state)
     # test 
-    _, y_test, yhat_test = run_epoch(model, loaders['test'], device, optimizer=None)
-    md = metrics_dict(y_test, yhat_test)
+    _, y_test, yhat50_test = run_epoch(model, loaders['test'], device, optimizer=None)
+    md = metrics_dict(y_test, yhat50_test)
     md.update(model=name, split='test_overall')
     results.append(md)
 
@@ -139,9 +139,10 @@ def main():
         x = (x - test_ds.mean) / test_ds.std 
         # [batch, time, dim]
         x = torch.tensor(x.values, dtype=torch.float32, device=device).unsqueeze(0)
-        yhat = model(x).squeeze(0).cpu().numpy()
+        yhat3 = model(x).squeeze(0).cpu().numpy() # (batch,3)
+        y50 = yhat3[:,1] # p50
         per_activity[activity]['y'].append(y.values)
-        per_activity[activity]['yhat'].append(yhat)
+        per_activity[activity]['yhat'].append(y50)
     
     # d: {'y': [[], [],...], 'yhat': [[], [], [], ..]}
     for activity, d in per_activity.items():

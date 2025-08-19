@@ -28,18 +28,22 @@ class TCNBlock(nn.Module):
     return self.net(x) + self.down(x)
 
 class TCN(nn.Module):
-  def __init__(self, feat_dim, pred_len, channels=(64,64,64), k=3, dropout=0.1):
+  def __init__(self, feat_dim, pred_len, channels=(64,64,64), k=3, dropout=0.1, n_quantiles=3):
     super().__init__()
+    self.pred_len = pred_len 
+    self.nq = n_quantiles
     layers = []
     in_ch = feat_dim 
     for i, ch in enumerate(channels):
       layers.append(TCNBlock(in_ch, ch, k=k, dilation=2**i, dropout=dropout))
       in_ch = ch 
     self.tcn = nn.Sequential(*layers)
-    self.head = nn.Linear(in_ch, pred_len)
+    self.head = nn.Linear(in_ch, pred_len*n_quantiles)
   
   def forward(self, x):
     x = x.transpose(1,2) # [batch,time,feat]=>[batch,feat,time]
     y = self.tcn(x) # [batch,channels,time]
     last = y[:,:,-1] # [batch,channels]
-    return self.head(last) # [batch,pred_len]
+    out = self.head(last) # [batch,pred_len*n_quantiles]
+    batch = out.shape[0]
+    return out.view(batch, self.pred_len, self.nq)
