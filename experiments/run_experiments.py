@@ -21,7 +21,9 @@ def make_loaders(train_frames, val_frames, test_frames, input_cols, target_col,
     'val': DataLoader(val_ds, batch_size=batch_size, shuffle=False, drop_last=False),
     'test': DataLoader(test_ds, batch_size=batch_size, shuffle=False, drop_last=False)
   }
-  return loaders, norm 
+  target_mean, target_std = float(train_ds.target_mean), float(train_ds.target_std)
+
+  return loaders, norm, target_mean, target_std
 
 def main():
   p = argparse.ArgumentParser()
@@ -36,7 +38,7 @@ def main():
   p.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
   p.add_argument('--out_dir', type=str, default=str(Path(__file__).resolve().parents[1] / 'outputs'))
   args = p.parse_args()
-
+  print("DEVICE IS: ", args.device)
   utils.set_seed(args.seed)
   out_dir = Path(args.out_dir)
   out_dir.mkdir(parents=True, exist_ok=True)
@@ -82,16 +84,16 @@ def main():
   test_frames = by_users(sessions, test_users)
 
   # norm = {'mean': <x_mean>, 'std': <x_std>}
-  loaders, norm = make_loaders(
+  loaders, norm, target_mean, target_std = make_loaders(
     train_frames, val_frames, test_frames, input_cols, target_col,
     args.seq_len, args.pred_len, args.batch_size, args.stride)
   device = torch.device(args.device)
   feat_dim = len(input_cols)
   models = {
-    # 'mlp': MLP(seq_len=args.seq_len, feat_dim=feat_dim, pred_len=args.pred_len, hidden=256, dropout=0.1),
-    # 'lstm': LSTMForecaster(feat_dim=feat_dim, pred_len=args.pred_len, hidden=128, layers=2, dropout=0.1),
-    # 'tcn': TCN(feat_dim=feat_dim, pred_len=args.pred_len, channels=(64,64,64), k=3, dropout=0.1),
-    # 'transformer': TransformerForecaster(feat_dim, args.pred_len, d_model=128, nhead=4, num_layers=3, dim_ff=256, dropout=0.1),
+    'mlp': MLP(seq_len=args.seq_len, feat_dim=feat_dim, pred_len=args.pred_len, hidden=256, dropout=0.1),
+    'lstm': LSTMForecaster(feat_dim=feat_dim, pred_len=args.pred_len, hidden=128, layers=2, dropout=0.1),
+    'tcn': TCN(feat_dim=feat_dim, pred_len=args.pred_len, channels=(64,64,64), k=3, dropout=0.1),
+    'transformer': TransformerForecaster(feat_dim, args.pred_len, d_model=128, nhead=4, num_layers=3, dim_ff=256, dropout=0.1),
     "seq2seq_lstm": Seq2SeqLSTM(feat_dim=feat_dim, pred_len=args.pred_len, hidden=128, layers=2, teacher_forcing_ratio=0.5)
   }
 
@@ -106,9 +108,10 @@ def main():
     bad = 0 
 
     for epoch in range(1, args.epochs+1):
-      tr_loss, _, _ = run_epoch(model, loaders['train'], device, optimizer=opt)
-      val_loss, _, _ = run_epoch(model, loaders['val'], device, optimizer=None)
-      print(f"[{name}] epoch {epoch:02d} train MSE={tr_loss:.4f} val MSE={val_loss:.4f}")
+      tr_loss, _, _ = run_epoch(model, loaders['train'], device, optimizer=opt, target_mean=target_mean, target_std=target_std)
+      val_loss, _, _ = run_epoch(model, loaders['val'], device, optimizer=None, target_mean=target_mean, target_std=target_std)
+      print(f"[{name}] epoch {epoch:02d} train Pinball(z)={tr_loss:.4f} val Pinball(z)={val_loss:.4f}")
+      
       if val_loss < best_val - 1e-6:
         best_val = val_loss 
         best_state = {k:v.cpu().clone() for k,v in model.state_dict().items()}
@@ -121,12 +124,12 @@ def main():
     if best_state is not None:
       model.load_state_dict(best_state)
     # test 
-    _, y_test, yhat50_test = run_epoch(model, loaders['test'], device, optimizer=None)
+    _, y_test, yhat50_test = run_epoch(model, loaders['test'], device, optimizer=None, target_mean=target_mean, target_std=target_std)
     md = metrics_dict(y_test, yhat50_test)
     md.update(model=name, split='test_overall')
     results.append(md)
 
-    # per-activity 
+    # per-activity predictions => invert model outputs
     per_activity = defaultdict(lambda: {'y': [], 'yhat': []})
     test_ds = loaders['test'].dataset 
     model.eval()
@@ -139,8 +142,9 @@ def main():
         x = (x - test_ds.mean) / test_ds.std 
         # [batch, time, dim]
         x = torch.tensor(x.values, dtype=torch.float32, device=device).unsqueeze(0)
-        yhat3 = model(x).squeeze(0).cpu().numpy() # (batch,3)
-        y50 = yhat3[:,1] # p50
+        yhat3_z = model(x).squeeze(0).cpu().numpy() # (batch,3)
+        y50_z = yhat3_z[:,1] # p50
+        y50 = y50_z * target_std + target_mean
         per_activity[activity]['y'].append(y.values)
         per_activity[activity]['yhat'].append(y50)
     

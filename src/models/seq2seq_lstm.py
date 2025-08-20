@@ -53,7 +53,7 @@ class Seq2SeqLSTM(nn.Module):
       y_q, hidden, cell = self.decoder(y_prev, hidden, cell)
       if self.nq > 1:
         y_q, _ = torch.sort(y_q, dim=-1) # ascending: p10<p50<p90
-      preds.append(y_q.unsqueeze(-1)) # append (batch,1,n_quantiles)
+      preds.append(y_q.unsqueeze(1)) # append (batch,1,n_quantiles)
       if (y_future is not None) and (torch.rand(1, device=device) < self.teacher_forcing_ratio):
         y_prev = y_future[:,t]
       else:

@@ -19,6 +19,9 @@ class WindowDataset(Dataset):
     else:
       self.mean = norm_stats['mean']
       self.std = norm_stats['std']
+    
+    self.target_mean = float(self.mean[self.target_col])
+    self.target_std = float(self.std[self.target_col] if self.std[self.target_col] != 0 else 1.0)
 
     for frame_id, frame in enumerate(frames):
       n = len(frame)
@@ -35,6 +38,7 @@ class WindowDataset(Dataset):
     x = frame.iloc[start:start+self.seq_len][self.input_cols]
     y = frame.iloc[start+self.seq_len : start+self.seq_len+self.pred_len][self.target_col]
     x = (x-self.mean) / self.std 
+    y = (y-self.target_mean) / self.target_std
     x = torch.tensor(x.values, dtype=torch.float32)
     y = torch.tensor(y.values, dtype=torch.float32)
     return x, y

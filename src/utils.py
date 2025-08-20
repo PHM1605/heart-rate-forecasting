@@ -30,29 +30,37 @@ def save_example_plot(frame, input_cols, norm, model, seq_len, pred_len, out_pat
     train_cols = list(norm['mean'].index)
   else:
     train_cols = list(input_cols)  # fallback
+  target_mean = float(norm['mean']['hr'])
+  target_std = float(norm['std']['hr'] if float(norm['std']['hr']) != 0 else 1.0)
   first_start = max(0, len(frame) - S*pred_len - seq_len) 
 
-  ys, yhats = [], []
+  y_true_all = []
+  p10_all, p50_all, p90_all = [], [], []
   device = next(model.parameters()).device 
   model.eval() 
   with torch.no_grad():
     for st in range(first_start, first_start+S*pred_len, pred_len):
-      x = frame.iloc[st:st+seq_len][input_cols]
-      x = (x-norm['mean']) / norm['std']
+      x = frame.iloc[st:st+seq_len][train_cols]
+      x = (x-norm['mean'].loc[train_cols]) / norm['std'].loc[train_cols]
       x_t = torch.tensor(x.values, dtype=torch.float32, device=device).unsqueeze(0)
-      yhat = model(x_t).squeeze(0).cpu().numpy()
+      yhat_z = model(x_t).squeeze(0).cpu().numpy() # (pred_length,3)
+      yhat = yhat_z * target_std + target_mean
       y_true = frame.iloc[st+seq_len : st+seq_len+pred_len]['hr'].values
-      yhats.extend(list(yhat))
-      ys.extend(list(y_true))
+      
+      y_true_all.extend(y_true.tolist())
+      p10_all.extend(yhat[:,0].tolist())
+      p50_all.extend(yhat[:,1].tolist())
+      p90_all.extend(yhat[:,2].tolist())
   # time at 0s, 10s, 20s ....
-  ts = frame.iloc[first_start+seq_len : first_start+seq_len+len(ys)]['timestamp'].values 
+  ts = frame.iloc[first_start+seq_len : first_start+seq_len+len(y_true_all)]['timestamp'].values 
   plt.figure()
   # plot BACK-TO-BACK. at 0th-second we plot 10 samples, then at 10th-second we plot next 10 samples...
-  plt.plot(ts, ys, label="HR true")
-  plt.plot(ts, yhats, label="HR pred", alpha=0.8)
+  plt.plot(ts, y_true_all, label="HR true")
+  plt.plot(ts, p50_all, label="HR p50", alpha=0.95)
+  plt.fill_between(ts, p10_all, p90_all, alpha=0.25, label="HR p10-p90")
   plt.xlabel("Time")
   plt.ylabel("HR (bpm)")
-  plt.title("Test segment: ground truth vs prediction")
+  plt.title("Test segment: ground truth vs quantile forecast")
   plt.legend() 
   plt.tight_layout()
   plt.savefig(out_path, dpi=180)
