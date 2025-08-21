@@ -27,10 +27,8 @@ def run_epoch(model, loader, device, optimizer=None, target_mean=None, target_st
   # z means standardized
   with torch.set_grad_enabled(is_train):
     for x, y_z in loader:
-      print("DEBUG: ", device)
       x = x.to(device)
       y_z = y_z.to(device)
-      print("DEBUG2: ", x)
       if is_train and is_seq2seq:
         yhat_3q_z = model(x, y_future=y_z) # (batch,pred_len,3) with teacher forcing
       else:
@@ -43,16 +41,6 @@ def run_epoch(model, loader, device, optimizer=None, target_mean=None, target_st
         nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step() 
       losses.append(loss.item())
-
-      if not is_train:
-        print("DEBUG val y_z μ/σ:", y_z.mean().item(), y_z.std().item())
-        y_tmp = y_z.clone()
-        # if you suspect y_z isn't z-scored, force-standardize with train stats (only for debug):
-        # y_tmp = (y_raw - target_mean)/target_std
-        loss_dbg = qloss(yhat_3q_z, y_tmp)
-        print("DEBUG val loss (current):", loss.item(), " | recomputed:", loss_dbg.item())
-        break
-
 
       # for eval metrics: using p50 as point forecast
       if not is_train:

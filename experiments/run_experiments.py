@@ -17,9 +17,9 @@ def make_loaders(train_frames, val_frames, test_frames, input_cols, target_col,
   val_ds = WindowDataset(val_frames, input_cols, target_col, seq_len, pred_len, stride, norm_stats=norm, fit_stats=False)
   test_ds = WindowDataset(test_frames, input_cols, target_col, seq_len, pred_len, stride, norm_stats=norm, fit_stats=False)
   loaders = {
-    'train': DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True), # drop_last mean what to do if #lastSamples != batch_size
-    'val': DataLoader(val_ds, batch_size=batch_size, shuffle=False, drop_last=False),
-    'test': DataLoader(test_ds, batch_size=batch_size, shuffle=False, drop_last=False)
+    'train': DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True, pin_memory=True), # drop_last mean what to do if #lastSamples != batch_size
+    'val': DataLoader(val_ds, batch_size=batch_size, shuffle=False, drop_last=False, pin_memory=True),
+    'test': DataLoader(test_ds, batch_size=batch_size, shuffle=False, drop_last=False, pin_memory=True)
   }
   target_mean, target_std = float(train_ds.target_mean), float(train_ds.target_std)
 
@@ -101,6 +101,7 @@ def main():
   best_plot_saved = False 
   for name, model in models.items():
     model = model.to(device)
+    print("MODEL: ", next(model.parameters()).device)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     best_val = float("inf")
     best_state = None 
